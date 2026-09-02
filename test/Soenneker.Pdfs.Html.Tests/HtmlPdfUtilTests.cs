@@ -22,10 +22,10 @@ public sealed class HtmlPdfUtilTests : HostedUnitTest
     }
 
     [Test]
-    public async Task GenerateInParallelProducesPdfs()
+    public async Task GenerateInParallelProducesPdfs(CancellationToken cancellationToken)
     {
         Task<Stream>[] tasks = Enumerable.Range(0, 8)
-                                         .Select(index => _util.Generate($"<html><body><h1>PDF {index}</h1></body></html>").AsTask())
+                                         .Select(index => _util.Generate($"<html><body><h1>PDF {index}</h1></body></html>", cancellationToken: cancellationToken).AsTask())
                                          .ToArray();
 
         Stream[] pdfs = await Task.WhenAll(tasks);
@@ -48,7 +48,7 @@ public sealed class HtmlPdfUtilTests : HostedUnitTest
     }
 
     [Test]
-    public async Task GenerateToFilePreservesExistingFileWhenRenderingFails()
+    public async Task GenerateToFilePreservesExistingFileWhenRenderingFails(CancellationToken cancellationToken)
     {
         string path = Path.GetTempFileName();
         const string existingContent = "existing content";
@@ -59,7 +59,7 @@ public sealed class HtmlPdfUtilTests : HostedUnitTest
         {
             try
             {
-                await _util.GenerateToFile("", path);
+                await _util.GenerateToFile("", path, cancellationToken: cancellationToken);
             }
             catch (ArgumentException)
             {
@@ -95,7 +95,7 @@ public sealed class HtmlPdfUtilTests : HostedUnitTest
     }
 
     [Test]
-    public async Task GenerateSupportsRestrictedRendering()
+    public async Task GenerateSupportsRestrictedRendering(CancellationToken cancellationToken)
     {
         var options = new HtmlPdfOptions
         {
@@ -103,7 +103,7 @@ public sealed class HtmlPdfUtilTests : HostedUnitTest
             ContextOptions = new BrowserNewContextOptions {JavaScriptEnabled = false}
         };
 
-        await using Stream pdf = await _util.Generate("<html><body>Restricted</body></html>", options);
+        await using Stream pdf = await _util.Generate("<html><body>Restricted</body></html>", options, cancellationToken: cancellationToken);
         var signature = new byte[5];
         await pdf.ReadExactlyAsync(signature);
 
