@@ -1,6 +1,8 @@
 using Microsoft.Playwright;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging;
+using Soenneker.Asyncs.Locks;
+using Soenneker.Asyncs.Semaphores;
 using Soenneker.Extensions.Task;
 using Soenneker.Extensions.ValueTask;
 using Soenneker.Pdfs.Html.Abstract;
@@ -24,8 +26,8 @@ public sealed class HtmlPdfUtil : IHtmlPdfUtil, IDisposable, IAsyncDisposable
     private readonly IFileUtil _fileUtil;
     private readonly IMemoryStreamUtil _memoryStreamUtil;
     private readonly IPathUtil _pathUtil;
-    private readonly SemaphoreSlim _concurrencyGate;
-    private readonly SemaphoreSlim _initializationLock = new(1, 1);
+    private readonly AsyncSemaphore _concurrencyGate;
+    private readonly AsyncLock _initializationLock = new();
 
     private IPlaywright? _playwright;
     private IBrowser? _browser;
@@ -49,7 +51,7 @@ public sealed class HtmlPdfUtil : IHtmlPdfUtil, IDisposable, IAsyncDisposable
 
         ArgumentNullException.ThrowIfNull(_options.LaunchOptions);
 
-        _concurrencyGate = new SemaphoreSlim(_options.MaxConcurrency, _options.MaxConcurrency);
+        _concurrencyGate = new AsyncSemaphore(_options.MaxConcurrency);
     }
 
     public async ValueTask<Stream> Generate(string html, HtmlPdfOptions? options = null, CancellationToken cancellationToken = default)
@@ -99,85 +101,75 @@ public sealed class HtmlPdfUtil : IHtmlPdfUtil, IDisposable, IAsyncDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(html);
 
         ThrowIfDisposed();
-        await _concurrencyGate.WaitAsync(cancellationToken).NoSync();
+        using SemaphoreLease lease = await _concurrencyGate.Acquire(cancellationToken).NoSync();
+        ThrowIfDisposed();
+
+        IBrowser browser = await GetBrowser(cancellationToken).NoSync();
+
+        using var renderTimeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+
+        if (_options.RenderTimeout != Timeout.InfiniteTimeSpan)
+            renderTimeoutSource.CancelAfter(_options.RenderTimeout);
+
+        CancellationToken renderToken = renderTimeoutSource.Token;
+        long startedAt = Environment.TickCount64;
 
         try
         {
-            ThrowIfDisposed();
+            await using IBrowserContext context = await browser.NewContextAsync(options?.ContextOptions)
+                                                                .WaitAsync(renderToken)
+                                                                .NoSync();
 
-            IBrowser browser = await GetBrowser(cancellationToken).NoSync();
-
-            using var renderTimeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-
-            if (_options.RenderTimeout != Timeout.InfiniteTimeSpan)
-                renderTimeoutSource.CancelAfter(_options.RenderTimeout);
-
-            CancellationToken renderToken = renderTimeoutSource.Token;
-            long startedAt = Environment.TickCount64;
-
-            try
+            if (options?.BlockNetworkRequests == true)
             {
-                await using IBrowserContext context = await browser.NewContextAsync(options?.ContextOptions)
-                                                                    .WaitAsync(renderToken)
-                                                                    .NoSync();
+                await context.RouteAsync("http://**/*", route => route.AbortAsync()).WaitAsync(renderToken).NoSync();
+                await context.RouteAsync("https://**/*", route => route.AbortAsync()).WaitAsync(renderToken).NoSync();
+            }
 
-                if (options?.BlockNetworkRequests == true)
-                {
-                    await context.RouteAsync("http://**/*", route => route.AbortAsync()).WaitAsync(renderToken).NoSync();
-                    await context.RouteAsync("https://**/*", route => route.AbortAsync()).WaitAsync(renderToken).NoSync();
-                }
+            IPage page = await context.NewPageAsync()
+                                      .WaitAsync(renderToken)
+                                      .NoSync();
 
-                IPage page = await context.NewPageAsync()
-                                          .WaitAsync(renderToken)
-                                          .NoSync();
+            await page.SetContentAsync(html, options?.ContentOptions)
+                      .WaitAsync(renderToken)
+                      .NoSync();
 
-                await page.SetContentAsync(html, options?.ContentOptions)
+            if (options?.WaitForFonts != false && options?.ContextOptions?.JavaScriptEnabled != false)
+            {
+                await page.EvaluateAsync<object?>("() => document.fonts.ready")
                           .WaitAsync(renderToken)
                           .NoSync();
-
-                if (options?.WaitForFonts != false && options?.ContextOptions?.JavaScriptEnabled != false)
-                {
-                    await page.EvaluateAsync<object?>("() => document.fonts.ready")
-                              .WaitAsync(renderToken)
-                              .NoSync();
-                }
-
-                byte[] bytes = await page.PdfAsync(options?.PdfOptions)
-                                         .WaitAsync(renderToken)
-                                         .NoSync();
-
-                _logger.LogDebug("Generated a {PdfSize} byte PDF in {ElapsedMilliseconds} ms", bytes.Length, Environment.TickCount64 - startedAt);
-                return bytes;
             }
-            catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested && renderTimeoutSource.IsCancellationRequested)
-            {
-                _logger.LogWarning("PDF generation exceeded the configured timeout of {RenderTimeout}", _options.RenderTimeout);
-                throw new TimeoutException($"PDF generation exceeded the configured timeout of {_options.RenderTimeout}.", exception);
-            }
-            catch (Exception exception)
-            {
-                _logger.LogWarning(exception, "PDF generation failed after {ElapsedMilliseconds} ms", Environment.TickCount64 - startedAt);
-                throw;
-            }
+
+            byte[] bytes = await page.PdfAsync(options?.PdfOptions)
+                                     .WaitAsync(renderToken)
+                                     .NoSync();
+
+            _logger.LogDebug("Generated a {PdfSize} byte PDF in {ElapsedMilliseconds} ms", bytes.Length, Environment.TickCount64 - startedAt);
+            return bytes;
         }
-        finally
+        catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested && renderTimeoutSource.IsCancellationRequested)
         {
-            _concurrencyGate.Release();
+            _logger.LogWarning("PDF generation exceeded the configured timeout of {RenderTimeout}", _options.RenderTimeout);
+            throw new TimeoutException($"PDF generation exceeded the configured timeout of {_options.RenderTimeout}.", exception);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "PDF generation failed after {ElapsedMilliseconds} ms", Environment.TickCount64 - startedAt);
+            throw;
         }
     }
 
     private async ValueTask<IBrowser> GetBrowser(CancellationToken cancellationToken)
     {
-        if (_browser is {IsConnected: true})
+        if (_browser is { IsConnected: true })
             return _browser;
 
-        await _initializationLock.WaitAsync(cancellationToken).NoSync();
-
-        try
+        using (await _initializationLock.Lock(cancellationToken).NoSync())
         {
             ThrowIfDisposed();
 
-            if (_browser is {IsConnected: true})
+            if (_browser is { IsConnected: true })
                 return _browser;
 
             if (_browser != null)
@@ -211,10 +203,6 @@ public sealed class HtmlPdfUtil : IHtmlPdfUtil, IDisposable, IAsyncDisposable
                 throw;
             }
         }
-        finally
-        {
-            _initializationLock.Release();
-        }
     }
 
     private void ThrowIfDisposed()
@@ -232,27 +220,30 @@ public sealed class HtmlPdfUtil : IHtmlPdfUtil, IDisposable, IAsyncDisposable
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
 
-        for (var i = 0; i < _options.MaxConcurrency; i++)
-        {
-            await _concurrencyGate.WaitAsync().NoSync();
-        }
-
-        await _initializationLock.WaitAsync().NoSync();
+        var leases = new SemaphoreLease[_options.MaxConcurrency];
+        var acquired = 0;
 
         try
         {
-            if (_browser != null)
-                await _browser.DisposeAsync().NoSync();
+            for (; acquired < leases.Length; acquired++)
+                leases[acquired] = await _concurrencyGate.Acquire().NoSync();
 
-            _playwright?.Dispose();
-            _browser = null;
-            _playwright = null;
+            using (await _initializationLock.Lock().NoSync())
+            {
+                if (_browser != null)
+                    await _browser.DisposeAsync().NoSync();
+
+                _playwright?.Dispose();
+                _browser = null;
+                _playwright = null;
+            }
         }
         finally
         {
-            _initializationLock.Release();
-            _initializationLock.Dispose();
-            _concurrencyGate.Dispose();
+            for (var i = 0; i < acquired; i++)
+                leases[i].Dispose();
         }
+
+        await _initializationLock.DisposeAsync().NoSync();
     }
 }
