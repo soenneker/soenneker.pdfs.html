@@ -18,6 +18,7 @@ using System.Threading.Tasks;
 
 namespace Soenneker.Pdfs.Html;
 
+/// <inheritdoc cref="IHtmlPdfUtil" />
 public sealed class HtmlPdfUtil : IHtmlPdfUtil, IDisposable, IAsyncDisposable
 {
     private readonly IPlaywrightInstallationUtil _playwrightInstallationUtil;
