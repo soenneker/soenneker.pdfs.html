@@ -117,9 +117,8 @@ public sealed class HtmlPdfUtil : IHtmlPdfUtil, IDisposable, IAsyncDisposable
 
         try
         {
-            await using IBrowserContext context = await browser.NewContextAsync(options?.ContextOptions)
-                                                                .WaitAsync(renderToken)
-                                                                .NoSync();
+            await using IBrowserContext context = await AwaitOwnedResource(browser.NewContextAsync(options?.ContextOptions), renderToken,
+                static value => value.DisposeAsync()).NoSync();
 
             if (options?.BlockNetworkRequests == true)
             {
@@ -186,13 +185,16 @@ public sealed class HtmlPdfUtil : IHtmlPdfUtil, IDisposable, IAsyncDisposable
 
             _logger.LogInformation("Starting the shared Chromium browser with a maximum PDF concurrency of {MaxConcurrency}", _options.MaxConcurrency);
 
-            IPlaywright playwright = await Playwright.CreateAsync().WaitAsync(cancellationToken).NoSync();
+            IPlaywright playwright = await AwaitOwnedResource(Playwright.CreateAsync(), cancellationToken, static value =>
+            {
+                value.Dispose();
+                return ValueTask.CompletedTask;
+            }).NoSync();
 
             try
             {
-                IBrowser browser = await playwright.Chromium.LaunchAsync(_options.LaunchOptions)
-                                                   .WaitAsync(cancellationToken)
-                                                   .NoSync();
+                IBrowser browser = await AwaitOwnedResource(playwright.Chromium.LaunchAsync(_options.LaunchOptions), cancellationToken,
+                    static value => value.DisposeAsync()).NoSync();
 
                 _playwright = playwright;
                 _browser = browser;
@@ -203,6 +205,33 @@ public sealed class HtmlPdfUtil : IHtmlPdfUtil, IDisposable, IAsyncDisposable
                 playwright.Dispose();
                 throw;
             }
+        }
+    }
+
+    private static async ValueTask<T> AwaitOwnedResource<T>(Task<T> task, CancellationToken cancellationToken, Func<T, ValueTask> dispose)
+    {
+        try
+        {
+            return await task.WaitAsync(cancellationToken).NoSync();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Playwright acquisition continues after WaitAsync is canceled. Retain ownership of its eventual result.
+            _ = DisposeAbandonedResource(task, dispose);
+            throw;
+        }
+    }
+
+    private static async Task DisposeAbandonedResource<T>(Task<T> task, Func<T, ValueTask> dispose)
+    {
+        try
+        {
+            T resource = await task.NoSync();
+            await dispose(resource).NoSync();
+        }
+        catch
+        {
+            // Observe failures from the abandoned acquisition or cleanup; the caller already received cancellation.
         }
     }
 
