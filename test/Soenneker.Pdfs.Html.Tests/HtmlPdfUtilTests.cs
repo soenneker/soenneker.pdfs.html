@@ -1,3 +1,4 @@
+using Soenneker.Utils.File.Abstract;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -14,10 +15,13 @@ namespace Soenneker.Pdfs.Html.Tests;
 [ClassDataSource<Host>(Shared = SharedType.PerTestSession)]
 public sealed class HtmlPdfUtilTests : HostedUnitTest
 {
+    private readonly IFileUtil _fileUtil;
+
     private readonly IHtmlPdfUtil _util;
 
     public HtmlPdfUtilTests(Host host) : base(host)
     {
+        _fileUtil = Resolve<IFileUtil>(true);
         _util = Resolve<IHtmlPdfUtil>(true);
     }
 
@@ -52,7 +56,7 @@ public sealed class HtmlPdfUtilTests : HostedUnitTest
     {
         string path = Path.GetTempFileName();
         const string existingContent = "existing content";
-        await File.WriteAllTextAsync(path, existingContent);
+        await _fileUtil.Write(path, existingContent);
         var threw = false;
 
         try
@@ -67,11 +71,11 @@ public sealed class HtmlPdfUtilTests : HostedUnitTest
             }
 
             await Assert.That(threw).IsTrue();
-            await Assert.That(await File.ReadAllTextAsync(path)).IsEqualTo(existingContent);
+            await Assert.That(await _fileUtil.Read(path)).IsEqualTo(existingContent);
         }
         finally
         {
-            File.Delete(path);
+            await _fileUtil.Delete(path);
         }
     }
 
