@@ -45,12 +45,12 @@
 
     <ItemGroup>
         <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.12" />
-        <PackageReference Include="Soenneker.Asyncs.Semaphores" Version="4.0.13" />
-        <PackageReference Include="Soenneker.Playwrights.Installation" Version="4.0.197" />
-        <PackageReference Include="Soenneker.Utils.File" Version="4.0.2281" />
+        <PackageReference Include="Soenneker.Asyncs.Semaphores" Version="4.0.14" />
+        <PackageReference Include="Soenneker.Playwrights.Installation" Version="4.0.198" />
+        <PackageReference Include="Soenneker.Utils.File" Version="4.0.2283" />
     </ItemGroup>
     <ItemGroup>
-        <PackageReference Include="Soenneker.Extensions.ValueTask" Version="4.0.123" />
+        <PackageReference Include="Soenneker.Extensions.ValueTask" Version="4.0.124" />
     </ItemGroup>
     <ItemGroup>
         <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.12" />
