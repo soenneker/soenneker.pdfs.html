@@ -46,8 +46,8 @@
     <ItemGroup>
         <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.12" />
         <PackageReference Include="Soenneker.Asyncs.Semaphores" Version="4.0.15" />
-        <PackageReference Include="Soenneker.Playwrights.Installation" Version="4.0.200" />
-        <PackageReference Include="Soenneker.Utils.File" Version="4.0.2287" />
+        <PackageReference Include="Soenneker.Playwrights.Installation" Version="4.0.201" />
+        <PackageReference Include="Soenneker.Utils.File" Version="4.0.2288" />
     </ItemGroup>
     <ItemGroup>
         <PackageReference Include="Soenneker.Extensions.ValueTask" Version="4.0.124" />
