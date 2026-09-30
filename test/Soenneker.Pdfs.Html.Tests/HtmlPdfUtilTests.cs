@@ -26,7 +26,7 @@ public sealed class HtmlPdfUtilTests : HostedUnitTest
     }
 
     [Test]
-    public async Task GenerateInParallelProducesPdfs(CancellationToken cancellationToken)
+    public async ValueTask GenerateInParallelProducesPdfs(CancellationToken cancellationToken)
     {
         Task<Stream>[] tasks = Enumerable.Range(0, 8)
                                          .Select(index => _util.Generate($"<html><body><h1>PDF {index}</h1></body></html>", cancellationToken: cancellationToken).AsTask())
@@ -52,7 +52,7 @@ public sealed class HtmlPdfUtilTests : HostedUnitTest
     }
 
     [Test]
-    public async Task GenerateToFilePreservesExistingFileWhenRenderingFails(CancellationToken cancellationToken)
+    public async ValueTask GenerateToFilePreservesExistingFileWhenRenderingFails(CancellationToken cancellationToken)
     {
         string path = Path.GetTempFileName();
         const string existingContent = "existing content";
@@ -80,7 +80,7 @@ public sealed class HtmlPdfUtilTests : HostedUnitTest
     }
 
     [Test]
-    public async Task GenerateHonorsPreCanceledToken()
+    public async ValueTask GenerateHonorsPreCanceledToken()
     {
         using var source = new CancellationTokenSource();
         await source.CancelAsync();
@@ -99,7 +99,7 @@ public sealed class HtmlPdfUtilTests : HostedUnitTest
     }
 
     [Test]
-    public async Task GenerateSupportsRestrictedRendering(CancellationToken cancellationToken)
+    public async ValueTask GenerateSupportsRestrictedRendering(CancellationToken cancellationToken)
     {
         var options = new HtmlPdfOptions
         {
