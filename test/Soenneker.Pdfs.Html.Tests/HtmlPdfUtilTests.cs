@@ -39,7 +39,7 @@ public sealed class HtmlPdfUtilTests : HostedUnitTest
             foreach (Stream pdf in pdfs)
             {
                 var signature = new byte[5];
-                await pdf.ReadExactlyAsync(signature);
+                await pdf.ReadExactlyAsync(signature, cancellationToken: cancellationToken);
 
                 await Assert.That(Encoding.ASCII.GetString(signature)).IsEqualTo("%PDF-");
             }
@@ -56,7 +56,7 @@ public sealed class HtmlPdfUtilTests : HostedUnitTest
     {
         string path = Path.GetTempFileName();
         const string existingContent = "existing content";
-        await _fileUtil.Write(path, existingContent);
+        await _fileUtil.Write(path, existingContent, cancellationToken: cancellationToken);
         var threw = false;
 
         try
@@ -71,7 +71,7 @@ public sealed class HtmlPdfUtilTests : HostedUnitTest
             }
 
             await Assert.That(threw).IsTrue();
-            await Assert.That(await _fileUtil.Read(path)).IsEqualTo(existingContent);
+            await Assert.That(await _fileUtil.Read(path, cancellationToken: cancellationToken)).IsEqualTo(existingContent);
         }
         finally
         {
@@ -80,7 +80,7 @@ public sealed class HtmlPdfUtilTests : HostedUnitTest
     }
 
     [Test]
-    public async ValueTask GenerateHonorsPreCanceledToken()
+    public async ValueTask GenerateHonorsPreCanceledToken(CancellationToken cancellationToken)
     {
         using var source = new CancellationTokenSource();
         await source.CancelAsync();
@@ -109,7 +109,7 @@ public sealed class HtmlPdfUtilTests : HostedUnitTest
 
         await using Stream pdf = await _util.Generate("<html><body>Restricted</body></html>", options, cancellationToken: cancellationToken);
         var signature = new byte[5];
-        await pdf.ReadExactlyAsync(signature);
+        await pdf.ReadExactlyAsync(signature, cancellationToken: cancellationToken);
 
         await Assert.That(Encoding.ASCII.GetString(signature)).IsEqualTo("%PDF-");
     }
