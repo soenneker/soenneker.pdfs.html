@@ -47,7 +47,7 @@
 
     <ItemGroup>
         <PackageReference Include="Soenneker.Asyncs.Semaphores" Version="11.0.40" />
-        <PackageReference Include="Soenneker.Playwrights.Installation" Version="11.0.264" />
+        <PackageReference Include="Soenneker.Playwrights.Installation" Version="11.0.265" />
         <PackageReference Include="Soenneker.Utils.File" Version="11.0.2348" />
     </ItemGroup>
     <ItemGroup>
